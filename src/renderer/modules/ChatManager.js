@@ -10367,7 +10367,7 @@ For complete tool documentation with all ${toolCount} available tools, ask me to
     const messageDiv = document.createElement('div');
     messageDiv.className = `message ${sender}-message`;
 
-    const displayTime = timestamp ? new Date(timestamp).toLocaleTimeString() : new Date().toLocaleTimeString();
+    const displayTime = timestamp ? new Date(timestamp).toLocaleString() : new Date().toLocaleString();
     const displayId = messageId || `msg-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
 
     const safeMessage = this.formatMessage(message);
@@ -12391,7 +12391,7 @@ For complete tool documentation with all ${toolCount} available tools, ask me to
 
     let messagesHTML = '';
     conversation.messages.forEach(msg => {
-      const time = new Date(msg.timestamp).toLocaleTimeString();
+      const time = new Date(msg.timestamp).toLocaleString();
       messagesHTML += `
                 <div class="conversation-message ${msg.sender}">
                     <div class="message-header">
@@ -12464,7 +12464,7 @@ For complete tool documentation with all ${toolCount} available tools, ask me to
     conversationText += `${'='.repeat(50)}\n\n`;
 
     conversation.messages.forEach(msg => {
-      const time = new Date(msg.timestamp).toLocaleTimeString();
+      const time = new Date(msg.timestamp).toLocaleString();
       const sender = msg.sender === 'user' ? 'You' : 'AI Assistant';
       conversationText += `[${time}] ${sender}:\n${msg.message}\n\n`;
     });
@@ -14343,7 +14343,7 @@ For complete tool documentation with all ${toolCount} available tools, ask me to
 
       // Add a timestamp (if enabled)
       if (this.showTimestamps) {
-        const timestamp = new Date().toLocaleTimeString();
+        const timestamp = new Date().toLocaleString();
         const timestampDiv = document.createElement('div');
         timestampDiv.className = 'thinking-timestamp';
         timestampDiv.textContent = `Completed at ${timestamp}`;
