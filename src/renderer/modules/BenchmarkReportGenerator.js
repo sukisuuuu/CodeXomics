@@ -457,6 +457,121 @@ class BenchmarkReportGenerator {
   }
 
   /**
+   * Generate SFT (Supervised Fine-Tuning) training export in JSONL format.
+   * Exports only PASSED samples, each line contains:
+   *   {instruction, tool_name, parameters, test_id, suite_name}
+   *
+   * This is the simplest training format: "here's the question, here's the correct answer."
+   */
+  generateTrainingSFTExport(benchmarkResults) {
+    const records = [];
+
+    if (benchmarkResults.testSuiteResults) {
+      for (const suiteResult of benchmarkResults.testSuiteResults) {
+        const suiteName = suiteResult.suiteName || suiteResult.suiteId || 'Unknown Suite';
+
+        if (!suiteResult.testResults) continue;
+
+        for (const testResult of suiteResult.testResults) {
+          // SFT only uses passed samples (correct answers)
+          if (!testResult.success) continue;
+
+          const instruction = this.extractInstructionForTraining(testResult);
+          if (!instruction) continue;
+
+          const expected = testResult.expectedResult;
+          if (!expected || !expected.tool_name) continue;
+
+          records.push({
+            instruction: instruction,
+            tool_name: expected.tool_name,
+            parameters: expected.parameters || {},
+            test_id: testResult.testId,
+            suite_name: suiteName,
+          });
+        }
+      }
+    }
+
+    return records.map(record => JSON.stringify(record)).join('\n');
+  }
+
+  /**
+   * Generate DPO (Direct Preference Optimization) training export in JSONL format.
+   * Exports only FAILED samples, each line contains:
+   *   {instruction, chosen: {tool_name, parameters}, rejected: {tool_name, parameters}, test_id, suite_name}
+   *
+   * "chosen" = the correct answer (expectedResult)
+   * "rejected" = what the model actually output (actualResult)
+   * This teaches the model to prefer correct outputs over incorrect ones.
+   */
+  generateTrainingDPOExport(benchmarkResults) {
+    const records = [];
+
+    if (benchmarkResults.testSuiteResults) {
+      for (const suiteResult of benchmarkResults.testSuiteResults) {
+        const suiteName = suiteResult.suiteName || suiteResult.suiteId || 'Unknown Suite';
+
+        if (!suiteResult.testResults) continue;
+
+        for (const testResult of suiteResult.testResults) {
+          // DPO only uses failed samples
+          if (testResult.success) continue;
+
+          const instruction = this.extractInstructionForTraining(testResult);
+          if (!instruction) continue;
+
+          const expected = testResult.expectedResult;
+          const actual = testResult.actualResult;
+
+          // Need both chosen (expected) and rejected (actual) for DPO
+          if (!expected || !expected.tool_name) continue;
+
+          records.push({
+            instruction: instruction,
+            chosen: {
+              tool_name: expected.tool_name,
+              parameters: expected.parameters || {},
+            },
+            rejected: {
+              tool_name: actual?.tool_name || 'no_tool_called',
+              parameters: actual?.parameters || {},
+            },
+            test_id: testResult.testId,
+            suite_name: suiteName,
+          });
+        }
+      }
+    }
+
+    return records.map(record => JSON.stringify(record)).join('\n');
+  }
+
+  /**
+   * Extract the instruction text from a test result.
+   * Tries multiple sources in order: details.instruction, testResult.instruction, llmInteractionData.
+   */
+  extractInstructionForTraining(testResult) {
+    // Source 1: details.instruction (most reliable)
+    if (testResult.details?.instruction) {
+      return testResult.details.instruction;
+    }
+
+    // Source 2: direct instruction field
+    if (testResult.instruction) {
+      return testResult.instruction;
+    }
+
+    // Source 3: llmInteractionData request prompt
+    if (testResult.llmInteractionData?.request?.prompt) {
+      return testResult.llmInteractionData.request.prompt;
+    }
+
+    // Fallback: test name
+    return testResult.testName || null;
+  }
+
+  /**
    * Generate HTML report
    */
   generateHTMLReport(benchmarkResults, options = {}) {

@@ -812,6 +812,12 @@ class BenchmarkUI {
                             <button class="btn" id="exportLLMInteractions" disabled style="background: #9b59b6; color: white;">
                                 <span>🤖</span> Export LLM Interactions
                             </button>
+                            <button class="btn" id="exportTrainingSFT" disabled style="background: #27ae60; color: white;" title="Export passed results as JSONL for SFT training">
+                                <span>🎓</span> Export for SFT
+                            </button>
+                            <button class="btn" id="exportTrainingDPO" disabled style="background: #e67e22; color: white;" title="Export failed results as JSONL for DPO training">
+                                <span>⚖️</span> Export for DPO
+                            </button>
                             <button class="btn" id="testManualDialog" style="background: #f39c12; color: white;" title="Test Manual Dialog System">
                                 <span>🗪</span> Test Manual Dialog
                             </button>
@@ -995,6 +1001,8 @@ class BenchmarkUI {
     const dynamicToolsBtn = document.getElementById('viewDynamicToolsStats');
     const testBtn = document.getElementById('testManualDialog');
     const browseBtn = document.getElementById('browseDirectoryBtn');
+    const exportSFTBtn = document.getElementById('exportTrainingSFT');
+    const exportDPOBtn = document.getElementById('exportTrainingDPO');
 
     if (startBtn) startBtn.onclick = () => this.startMainWindowBenchmark();
     if (stopBtn) stopBtn.onclick = () => this.stopMainWindowBenchmark();
@@ -1002,6 +1010,8 @@ class BenchmarkUI {
     if (dynamicToolsBtn) dynamicToolsBtn.onclick = () => this.showDynamicToolsStats();
     if (testBtn) testBtn.onclick = () => this.triggerTestManualDialog();
     if (browseBtn) browseBtn.onclick = () => this.browseDefaultDirectory();
+    if (exportSFTBtn) exportSFTBtn.onclick = () => this.exportTrainingData('sft');
+    if (exportDPOBtn) exportDPOBtn.onclick = () => this.exportTrainingData('dpo');
 
     // Setup drag functionality for the title bar
     this.setupDragFunctionality();
@@ -2384,6 +2394,16 @@ class BenchmarkUI {
       if (exportLLMBtn) {
         exportLLMBtn.disabled = false;
       }
+
+      // Enable training export buttons
+      const exportSFTBtn = document.getElementById('exportTrainingSFT');
+      if (exportSFTBtn) {
+        exportSFTBtn.disabled = false;
+      }
+      const exportDPOBtn = document.getElementById('exportTrainingDPO');
+      if (exportDPOBtn) {
+        exportDPOBtn.disabled = false;
+      }
     }
   }
 
@@ -2503,6 +2523,78 @@ class BenchmarkUI {
     } catch (error) {
       console.error('Failed to export results:', error);
       alert('Failed to export results: ' + error.message);
+    }
+  }
+
+  /**
+   * Export benchmark results as training data (SFT or DPO format)
+   * @param {string} format - 'sft' or 'dpo'
+   *
+   * How it works (for beginners):
+   * - SFT (Supervised Fine-Tuning): Exports only passed test cases.
+   *   Each line = "Here's a question, here's the correct answer."
+   *   Used to teach the model by showing it good examples.
+   *
+   * - DPO (Direct Preference Optimization): Exports only failed test cases.
+   *   Each line = "Question + correct answer vs. wrong answer the model gave."
+   *   Used to teach the model NOT to make those mistakes again.
+   *
+   * Both output JSONL format (one JSON object per line).
+   * Example SFT line:
+   *   {"instruction":"Set working directory to /data/","tool_name":"set_working_directory","parameters":{...}}
+   * Example DPO line:
+   *   {"instruction":"...","chosen":{"tool_name":"correct","parameters":{...}},"rejected":{"tool_name":"wrong","parameters":{...}}}
+   */
+  exportTrainingData(format) {
+    if (!this.currentResults) {
+      alert('No benchmark results to export. Run a benchmark first.');
+      return;
+    }
+
+    try {
+      const reportGen = new BenchmarkReportGenerator();
+      let content;
+      let filename;
+      let label;
+
+      if (format === 'sft') {
+        content = reportGen.generateTrainingSFTExport(this.currentResults);
+        label = 'SFT';
+        filename = 'training-sft-';
+      } else if (format === 'dpo') {
+        content = reportGen.generateTrainingDPOExport(this.currentResults);
+        label = 'DPO';
+        filename = 'training-dpo-';
+      } else {
+        alert('Unknown export format: ' + format);
+        return;
+      }
+
+      if (!content || content.trim().length === 0) {
+        const noDataMsg =
+          format === 'sft'
+            ? 'No passed samples found. SFT export requires at least one test that passed.'
+            : 'No failed samples found. DPO export requires at least one test that failed.';
+        alert(noDataMsg + '\n\nCurrent results may not have test-level pass/fail data.');
+        return;
+      }
+
+      // Count lines for user feedback
+      const lineCount = (content.match(/\n/g) || []).length + 1;
+
+      const blob = new Blob([content], { type: 'application/x-ndjson' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename + new Date().toISOString().slice(0, 19).replace(/:/g, '-') + '.jsonl';
+      a.click();
+      URL.revokeObjectURL(url);
+
+      console.log(`📤 ${label} training data exported: ${lineCount} records`);
+      alert(`${label} training data exported successfully!\n\nRecords: ${lineCount}\nFormat: JSONL (.jsonl)`);
+    } catch (error) {
+      console.error(`Failed to export ${format.toUpperCase()} training data:`, error);
+      alert(`Failed to export training data: ${error.message}`);
     }
   }
 
@@ -4254,6 +4346,9 @@ class BenchmarkUI {
                 <div class="dropdown-item" onclick="benchmarkApp.exportBasicResults()">📄 Export Basic Results</div>
                 <div class="dropdown-item" onclick="benchmarkApp.exportDetailedLLMInteractions()">🤖 Export LLM Interactions Only</div>
                 <div class="dropdown-separator"></div>
+                <div class="dropdown-item" onclick="benchmarkApp.exportTrainingData('sft')">🎓 Export for SFT Training</div>
+                <div class="dropdown-item" onclick="benchmarkApp.exportTrainingData('dpo')">⚖️ Export for DPO Training</div>
+                <div class="dropdown-separator"></div>
                 <div class="dropdown-item" onclick="benchmarkApp.closeWindow()">❌ Close</div>
             </div>
         </div>
@@ -4370,6 +4465,12 @@ class BenchmarkUI {
                     </button>
                     <button id="viewDynamicToolsStats" style="background: #2c7be5; color: white; border: none; padding: 12px 24px; border-radius: 6px; cursor: pointer; margin: 0 5px;" disabled title="Available after a benchmark run completes">
                         🧰 Dynamic Tools Stats
+                    </button>
+                    <button id="exportTrainingSFT" style="background: #27ae60; color: white; border: none; padding: 12px 24px; border-radius: 6px; cursor: pointer; margin: 0 5px;" disabled title="Export passed results as JSONL for SFT training">
+                        🎓 Export for SFT
+                    </button>
+                    <button id="exportTrainingDPO" style="background: #e67e22; color: white; border: none; padding: 12px 24px; border-radius: 6px; cursor: pointer; margin: 0 5px;" disabled title="Export failed results as JSONL for DPO training">
+                        ⚖️ Export for DPO
                     </button>
                 </div>
             </div>
@@ -4489,6 +4590,12 @@ class BenchmarkUI {
                 document.getElementById('stopBenchmark').onclick = () => this.stopBenchmark();
                 document.getElementById('exportResults').onclick = () => this.exportResults();
                 document.getElementById('viewDynamicToolsStats').onclick = () => this.showDynamicToolsStats();
+
+                // Training export button handlers
+                const sftBtn = document.getElementById('exportTrainingSFT');
+                if (sftBtn) sftBtn.onclick = () => this.exportTrainingData('sft');
+                const dpoBtn = document.getElementById('exportTrainingDPO');
+                if (dpoBtn) dpoBtn.onclick = () => this.exportTrainingData('dpo');
 
                 // Keyboard shortcuts
                 document.addEventListener('keydown', (e) => {
@@ -5005,6 +5112,75 @@ class BenchmarkUI {
                 }
             }
 
+            /**
+             * Export benchmark results as training data (SFT or DPO format)
+             * @param {string} format - 'sft' or 'dpo'
+             */
+            exportTrainingData(format) {
+                if (!this.currentResults) {
+                    alert('No benchmark results to export. Run a benchmark first.');
+                    return;
+                }
+
+                try {
+                    // Access BenchmarkReportGenerator from parent window or create new one
+                    const reportGen = window.opener && window.opener.BenchmarkReportGenerator
+                        ? new window.opener.BenchmarkReportGenerator()
+                        : (typeof BenchmarkReportGenerator !== 'undefined'
+                            ? new BenchmarkReportGenerator()
+                            : null);
+
+                    if (!reportGen) {
+                        alert('BenchmarkReportGenerator not available. Please try from the main window.');
+                        return;
+                    }
+
+                    let content;
+                    let filename;
+                    let label;
+
+                    if (format === 'sft') {
+                        content = reportGen.generateTrainingSFTExport(this.currentResults);
+                        label = 'SFT';
+                        filename = 'training-sft-';
+                    } else if (format === 'dpo') {
+                        content = reportGen.generateTrainingDPOExport(this.currentResults);
+                        label = 'DPO';
+                        filename = 'training-dpo-';
+                    } else {
+                        alert('Unknown export format: ' + format);
+                        return;
+                    }
+
+                    if (!content || content.trim().length === 0) {
+                        const noDataMsg = format === 'sft'
+                            ? 'No passed samples found. SFT export requires at least one test that passed.'
+                            : 'No failed samples found. DPO export requires at least one test that failed.';
+                        alert(noDataMsg + '\n\nCurrent results may not have test-level pass/fail data.');
+                        return;
+                    }
+
+                    const lineCount = (content.match(/\n/g) || []).length + 1;
+
+                    const blob = new Blob([content], { type: 'application/x-ndjson' });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = filename + new Date().toISOString().slice(0, 19).replace(/:/g, '-') + '.jsonl';
+                    a.click();
+                    URL.revokeObjectURL(url);
+
+                    this.updateStatus('ready', label + ' training data exported');
+                    setTimeout(() => this.updateStatus('ready', 'System Ready'), 2000);
+
+                    console.log('📤 ' + label + ' training data exported: ' + lineCount + ' records');
+                    alert(label + ' training data exported successfully!\n\nRecords: ' + lineCount + '\nFormat: JSONL (.jsonl)');
+                } catch (error) {
+                    console.error('Failed to export ' + format.toUpperCase() + ' training data:', error);
+                    alert('Failed to export training data: ' + error.message);
+                }
+            }
+
             // Edit Menu Actions
             copyResults() {
                 if (!this.currentResults) {
@@ -5101,6 +5277,12 @@ class BenchmarkUI {
                     document.getElementById('stopBenchmark').disabled = true;
                     document.getElementById('exportResults').disabled = false;
                     this.setDynamicToolsStatsButtonEnabled(!!this.currentResults);
+
+                    // Enable training export buttons
+                    const sftBtn = document.getElementById('exportTrainingSFT');
+                    if (sftBtn) sftBtn.disabled = false;
+                    const dpoBtn = document.getElementById('exportTrainingDPO');
+                    if (dpoBtn) dpoBtn.disabled = false;
                 }
             }
 

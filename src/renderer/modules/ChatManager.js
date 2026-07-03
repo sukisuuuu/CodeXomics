@@ -3980,6 +3980,7 @@ class ChatManager {
       existingChatPanel.style.display = 'flex';
       this.ensureChatPanelInViewport(existingChatPanel);
       this.configManager.set('chat.visible', true);
+      this.updateChatToggleButtonVisibility();
       return;
     }
 
@@ -4126,6 +4127,7 @@ class ChatManager {
       chatPanel.style.display = 'flex';
       this.ensureChatPanelInViewport(chatPanel);
       this.configManager.set('chat.visible', true);
+      this.updateChatToggleButtonVisibility();
       console.log('ChatBox created with visibility: visible');
     }
 
@@ -4463,6 +4465,20 @@ class ChatManager {
       this.notifyDockLayoutChanged('visibility');
       console.log('ChatBox visibility toggled:', isVisible ? 'hidden' : 'visible');
     }
+    this.updateChatToggleButtonVisibility();
+  }
+
+  /**
+   * Synchronize the toolbar chat toggle button visibility with the chat panel.
+   * The toggle button should be hidden when the chat panel is visible, and shown when it is hidden.
+   */
+  updateChatToggleButtonVisibility() {
+    const chatPanel = document.getElementById('llmChatPanel');
+    const toggleChatBtn = document.getElementById('toggleChatBtn');
+    if (!chatPanel || !toggleChatBtn) return;
+
+    const isVisible = chatPanel.style.display !== 'none';
+    toggleChatBtn.style.display = isVisible ? 'none' : '';
   }
 
   /**
@@ -4536,6 +4552,7 @@ class ChatManager {
     // Setup dock splitter dragging
     this.setupDockSplitterDragging();
 
+    this.updateChatToggleButtonVisibility();
     this.notifyDockLayoutChanged('dock');
     console.log('ChatBox docked to right panel');
   }
@@ -4591,6 +4608,7 @@ class ChatManager {
     // Hide any undock indicator
     this.hideUndockIndicator();
 
+    this.updateChatToggleButtonVisibility();
     this.notifyDockLayoutChanged('undock');
     console.log('ChatBox undocked to floating mode');
   }
@@ -4676,6 +4694,7 @@ class ChatManager {
       chatPanel.style.display = 'flex';
       this.ensureChatPanelInViewport(chatPanel);
       this.configManager.set('chat.visible', true);
+      this.updateChatToggleButtonVisibility();
       console.log('ChatBox forced to visible');
     }
   }
@@ -4688,6 +4707,7 @@ class ChatManager {
     if (chatPanel) {
       chatPanel.style.display = 'none';
       this.configManager.set('chat.visible', false);
+      this.updateChatToggleButtonVisibility();
       console.log('ChatBox hidden');
     }
   }

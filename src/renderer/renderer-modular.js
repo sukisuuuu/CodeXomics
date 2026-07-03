@@ -4411,78 +4411,147 @@ class GenomeBrowser {
   }
 
   // Make individual tracks draggable for reordering
+  // Uses mousedown/mousemove/mouseup instead of HTML5 drag API for reliability
   makeTrackDraggable(trackElement, trackType) {
-    // Add drag handle to track header
     const trackHeader = trackElement.querySelector('.track-header');
-    if (trackHeader) {
-      trackHeader.style.cursor = 'move';
-      trackHeader.setAttribute('draggable', true);
-      trackHeader.setAttribute('data-track-type', trackType);
+    if (!trackHeader) return;
 
-      // Add drag handle icon
-      const dragHandle = document.createElement('div');
+    // Avoid duplicate setup
+    if (trackHeader.hasAttribute('data-drag-setup')) return;
+    trackHeader.setAttribute('data-drag-setup', 'true');
+
+    trackHeader.setAttribute('data-track-type', trackType);
+
+    // Create drag handle if not present
+    let dragHandle = trackHeader.querySelector('.track-drag-handle');
+    if (!dragHandle) {
+      dragHandle = document.createElement('div');
       dragHandle.className = 'track-drag-handle';
       dragHandle.innerHTML = '<i class="fas fa-grip-vertical"></i>';
+      dragHandle.title = '按住拖动可调整轨道顺序';
       dragHandle.style.cssText = `
                 position: absolute;
-                left: 8px;
+                left: 6px;
                 top: 50%;
                 transform: translateY(-50%);
-                color: #6c757d;
+                width: 22px;
+                height: 22px;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                color: #495057;
+                background: rgba(0, 0, 0, 0.06);
+                border-radius: 4px;
                 cursor: grab;
-                font-size: 12px;
+                font-size: 13px;
                 z-index: 10;
+                user-select: none;
             `;
       trackHeader.style.position = 'relative';
-      trackHeader.style.paddingLeft = '30px';
+      trackHeader.style.paddingLeft = '32px';
       trackHeader.insertBefore(dragHandle, trackHeader.firstChild);
-
-      // Drag event handlers
-      trackHeader.addEventListener('dragstart', e => {
-        e.dataTransfer.setData('text/plain', trackType);
-        e.dataTransfer.effectAllowed = 'move';
-        trackElement.classList.add('dragging');
-        dragHandle.style.cursor = 'grabbing';
-      });
-
-      trackHeader.addEventListener('dragend', e => {
-        trackElement.classList.remove('dragging');
-        dragHandle.style.cursor = 'grab';
-
-        // Remove all drop indicators
-        document.querySelectorAll('.track-drop-indicator').forEach(indicator => {
-          indicator.remove();
-        });
-      });
     }
 
-    // Make track a drop target
-    trackElement.addEventListener('dragover', e => {
+    // Mouse-based drag implementation (more reliable than HTML5 drag API)
+    let isDragging = false;
+    let placeholder = null;
+
+    const onMouseDown = e => {
+      // Only left mouse button
+      if (e.button !== 0) return;
       e.preventDefault();
-      e.dataTransfer.dropEffect = 'move';
+      e.stopPropagation();
 
-      const draggingElement = document.querySelector('.dragging');
-      if (draggingElement && draggingElement !== trackElement) {
-        this.showDropIndicator(trackElement, e.clientY);
-      }
-    });
+      isDragging = true;
+      dragHandle.style.cursor = 'grabbing';
+      dragHandle.style.background = 'rgba(0, 123, 255, 0.2)';
+      trackElement.style.opacity = '0.5';
 
-    trackElement.addEventListener('dragleave', e => {
-      if (!trackElement.contains(e.relatedTarget)) {
-        this.hideDropIndicator(trackElement);
-      }
-    });
+      // Create a placeholder to hold the spot
+      placeholder = document.createElement('div');
+      placeholder.className = 'track-drag-placeholder';
+      placeholder.style.height = trackElement.offsetHeight + 'px';
+      placeholder.style.background = '#f0f0f0';
+      placeholder.style.border = '2px dashed #aaa';
+      placeholder.style.borderRadius = '4px';
+      placeholder.style.margin = '4px 0';
+      trackElement.parentElement.insertBefore(placeholder, trackElement);
+      trackElement.style.position = 'absolute';
+      trackElement.style.zIndex = '9999';
+      trackElement.style.width = placeholder.offsetWidth + 'px';
+      trackElement.style.pointerEvents = 'none';
 
-    trackElement.addEventListener('drop', e => {
-      e.preventDefault();
-      const draggedElement = document.querySelector('.dragging');
+      const onMouseMove = e => {
+        if (!isDragging) return;
 
-      if (draggedElement && draggedElement !== trackElement) {
-        this.reorderTracks(draggedElement, trackElement, e.clientY);
-      }
+        // Move the dragged element with mouse
+        trackElement.style.left = placeholder.getBoundingClientRect().left + 'px';
+        trackElement.style.top = e.clientY - trackElement.offsetHeight / 2 + 'px';
 
-      this.hideDropIndicator(trackElement);
-    });
+        // Find which track the mouse is over
+        const container = trackElement.parentElement;
+        const tracks = Array.from(container.children).filter(
+          el =>
+            el !== trackElement &&
+            el !== placeholder &&
+            el.classList &&
+            el.classList.contains('track-drag-placeholder') === false
+        );
+
+        let targetTrack = null;
+        for (const t of tracks) {
+          const rect = t.getBoundingClientRect();
+          if (e.clientY > rect.top && e.clientY < rect.bottom) {
+            targetTrack = t;
+            break;
+          }
+        }
+
+        if (targetTrack) {
+          const rect = targetTrack.getBoundingClientRect();
+          const insertBefore = e.clientY < rect.top + rect.height / 2;
+          if (insertBefore) {
+            container.insertBefore(placeholder, targetTrack);
+          } else {
+            container.insertBefore(placeholder, targetTrack.nextSibling);
+          }
+        }
+      };
+
+      const onMouseUp = e => {
+        if (!isDragging) return;
+        isDragging = false;
+
+        document.removeEventListener('mousemove', onMouseMove);
+        document.removeEventListener('mouseup', onMouseUp);
+
+        // Reset styles
+        dragHandle.style.cursor = 'grab';
+        dragHandle.style.background = 'rgba(0, 0, 0, 0.06)';
+        trackElement.style.opacity = '';
+        trackElement.style.position = '';
+        trackElement.style.zIndex = '';
+        trackElement.style.width = '';
+        trackElement.style.left = '';
+        trackElement.style.top = '';
+        trackElement.style.pointerEvents = '';
+
+        // Insert track at placeholder position
+        if (placeholder && placeholder.parentElement) {
+          placeholder.parentElement.insertBefore(trackElement, placeholder);
+          placeholder.remove();
+          placeholder = null;
+        }
+
+        // Update track order state
+        this.updateTrackOrder();
+      };
+
+      document.addEventListener('mousemove', onMouseMove);
+      document.addEventListener('mouseup', onMouseUp);
+    };
+
+    dragHandle.addEventListener('mousedown', onMouseDown);
   }
 
   // Add resize handle to track
@@ -4653,56 +4722,6 @@ class GenomeBrowser {
         }, 300);
       }
     });
-  }
-
-  // Show drop indicator when dragging tracks
-  showDropIndicator(targetElement, mouseY) {
-    this.hideDropIndicator(targetElement);
-
-    const rect = targetElement.getBoundingClientRect();
-    const midPoint = rect.top + rect.height / 2;
-    const isAbove = mouseY < midPoint;
-
-    const indicator = document.createElement('div');
-    indicator.className = 'track-drop-indicator';
-    indicator.style.cssText = `
-            position: absolute;
-            left: 0;
-            right: 0;
-            height: 3px;
-            background: #007bff;
-            z-index: 1000;
-            box-shadow: 0 0 4px rgba(0, 123, 255, 0.5);
-            ${isAbove ? 'top: -2px;' : 'bottom: -2px;'}
-        `;
-
-    targetElement.style.position = 'relative';
-    targetElement.appendChild(indicator);
-  }
-
-  // Hide drop indicator
-  hideDropIndicator(targetElement) {
-    const indicator = targetElement.querySelector('.track-drop-indicator');
-    if (indicator) {
-      indicator.remove();
-    }
-  }
-
-  // Reorder tracks based on drop position
-  reorderTracks(draggedElement, targetElement, mouseY) {
-    const container = targetElement.parentElement;
-    const rect = targetElement.getBoundingClientRect();
-    const midPoint = rect.top + rect.height / 2;
-    const insertBefore = mouseY < midPoint;
-
-    if (insertBefore) {
-      container.insertBefore(draggedElement, targetElement);
-    } else {
-      container.insertBefore(draggedElement, targetElement.nextSibling);
-    }
-
-    // Update track visibility state based on new order
-    this.updateTrackOrder();
   }
 
   // Update internal track order state
@@ -10383,14 +10402,15 @@ class GenomeBrowser {
     }
   }
 
-  // Handle bottom sequence panel (always docked to bottom when enabled)
+  // Handle bottom sequence panel (docked to top or bottom depending on user preference)
   handleBottomSequencePanel(chromosome, sequence) {
     const sequenceDisplaySection = document.getElementById('sequenceDisplaySection');
     const splitter = document.getElementById('splitter');
     const genomeViewerSection = document.getElementById('genomeViewerSection');
+    const sequenceOnTop = Boolean(this.configManager?.get('sequencePanelOnTop', false));
 
     if (this.visibleTracks.has('sequence')) {
-      // Show bottom sequence panel
+      // Show bottom/top sequence panel
       if (sequenceDisplaySection) {
         sequenceDisplaySection.style.display = 'flex';
 
@@ -10403,20 +10423,22 @@ class GenomeBrowser {
         sequenceDisplaySection.style.flex = '0 0 auto'; // Don't grow automatically
         sequenceDisplaySection.style.position = 'relative';
         sequenceDisplaySection.style.bottom = '0';
-        sequenceDisplaySection.style.order = '999'; // Ensure it's at the bottom
         sequenceDisplaySection.style.flexDirection = 'column';
+        // Order: if on top, place before splitter; otherwise after splitter
+        sequenceDisplaySection.style.order = sequenceOnTop ? '1' : '3';
       }
 
       if (splitter) {
         splitter.style.display = 'flex';
+        splitter.style.order = '2';
       }
 
-      // Adjust genome viewer to make room for bottom panel and ensure proper ordering
+      // Adjust genome viewer to make room for sequence panel and ensure proper ordering
       if (genomeViewerSection) {
         genomeViewerSection.style.flex = '1'; // Fill remaining space
         genomeViewerSection.style.flexBasis = 'auto';
         genomeViewerSection.style.minHeight = '200px'; // Ensure minimum space for tracks
-        genomeViewerSection.style.order = '1'; // Ensure it's above sequence section
+        genomeViewerSection.style.order = sequenceOnTop ? '3' : '1';
         genomeViewerSection.style.display = 'flex';
         genomeViewerSection.style.flexDirection = 'column';
       }
@@ -10483,9 +10505,48 @@ class GenomeBrowser {
 
     if (sequenceHeader && !sequenceHeader.hasAttribute('data-toggle-setup')) {
       sequenceHeader.setAttribute('data-toggle-setup', 'true');
-      sequenceHeader.style.cursor = 'pointer';
+      sequenceHeader.style.cursor = 'default';
+      sequenceHeader.title = 'Drag the grip icon to move sequence panel';
 
-      // Add visual indicator that it's clickable
+      // Add drag handle icon if not present
+      if (!sequenceHeader.querySelector('.sequence-drag-handle')) {
+        const dragHandle = document.createElement('div');
+        dragHandle.className = 'sequence-drag-handle';
+        dragHandle.innerHTML = '<i class="fas fa-grip-vertical"></i>';
+        dragHandle.title = 'Drag to move sequence panel';
+        dragHandle.setAttribute('draggable', true);
+        dragHandle.style.cssText = `
+                  display: inline-flex;
+                  align-items: center;
+                  justify-content: center;
+                  width: 22px;
+                  height: 22px;
+                  margin-right: 8px;
+                  color: #495057;
+                  background: rgba(0, 0, 0, 0.05);
+                  border-radius: 4px;
+                  cursor: grab;
+                  font-size: 13px;
+                  vertical-align: middle;
+                  transition: background 0.2s ease;
+              `;
+        sequenceHeader.insertBefore(dragHandle, sequenceHeader.firstChild);
+
+        // Drag events for moving the sequence panel
+        dragHandle.addEventListener('dragstart', e => {
+          e.dataTransfer.setData('text/plain', 'sequence-panel');
+          e.dataTransfer.effectAllowed = 'move';
+          const section = document.getElementById('sequenceDisplaySection');
+          if (section) section.classList.add('dragging');
+        });
+
+        dragHandle.addEventListener('dragend', e => {
+          const section = document.getElementById('sequenceDisplaySection');
+          if (section) section.classList.remove('dragging');
+        });
+      }
+
+      // Add visual indicator that it's draggable
       sequenceHeader.style.userSelect = 'none';
       sequenceHeader.addEventListener('mouseenter', () => {
         sequenceHeader.style.backgroundColor = '#e9ecef';
@@ -10499,6 +10560,83 @@ class GenomeBrowser {
       //     this.toggleBottomSequencePanel();
       // });
     }
+
+    // Set up drop targets so the sequence panel can be reordered relative to the main viewer
+    this.setupViewerSectionDropTargets();
+  }
+
+  /**
+   * Allow the main genome viewer section and the sequence display section to act as drop targets
+   * for each other, so the sequence panel can be dragged above or below the main tracks.
+   */
+  setupViewerSectionDropTargets() {
+    const viewerContainer = document.getElementById('viewerContainer');
+    const genomeViewerSection = document.getElementById('genomeViewerSection');
+    const sequenceDisplaySection = document.getElementById('sequenceDisplaySection');
+    const splitter = document.getElementById('splitter');
+    if (!viewerContainer || !genomeViewerSection || !sequenceDisplaySection) return;
+    if (genomeViewerSection.hasAttribute('data-section-drop-setup')) return;
+    genomeViewerSection.setAttribute('data-section-drop-setup', 'true');
+
+    const dropIndicatorClass = 'viewer-section-drop-indicator';
+
+    const showIndicator = target => {
+      this.hideViewerSectionDropIndicator();
+      const indicator = document.createElement('div');
+      indicator.className = dropIndicatorClass;
+      indicator.style.cssText = `
+        height: 4px;
+        background: linear-gradient(90deg, #1a73e8, #4285f4);
+        border-radius: 2px;
+        margin: 2px 0;
+        box-shadow: 0 0 6px rgba(26, 115, 232, 0.5);
+        animation: pulse-glow 1.5s ease-in-out infinite alternate;
+      `;
+      target.insertAdjacentElement('beforebegin', indicator);
+    };
+
+    const makeDropTarget = element => {
+      element.addEventListener('dragover', e => {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+        showIndicator(element);
+      });
+
+      element.addEventListener('dragleave', e => {
+        if (!element.contains(e.relatedTarget)) {
+          this.hideViewerSectionDropIndicator();
+        }
+      });
+
+      element.addEventListener('drop', e => {
+        e.preventDefault();
+        const data = e.dataTransfer.getData('text/plain');
+        this.hideViewerSectionDropIndicator();
+
+        // Only reorder when dragging the sequence panel onto the genome viewer section or vice versa
+        if (data === 'sequence-panel' && element === genomeViewerSection) {
+          // Move sequence panel (and its splitter) above genome viewer
+          viewerContainer.insertBefore(sequenceDisplaySection, genomeViewerSection);
+          if (splitter) viewerContainer.insertBefore(splitter, genomeViewerSection);
+        } else if (data !== 'sequence-panel' && element === sequenceDisplaySection) {
+          // A regular track was dropped onto the sequence panel -> move sequence panel (and splitter) above genome viewer
+          viewerContainer.insertBefore(sequenceDisplaySection, genomeViewerSection);
+          if (splitter) viewerContainer.insertBefore(splitter, genomeViewerSection);
+        }
+
+        // Persist the layout preference
+        const sequenceOnTop =
+          sequenceDisplaySection.compareDocumentPosition(genomeViewerSection) & Node.DOCUMENT_POSITION_FOLLOWING;
+        this.configManager.set('sequencePanelOnTop', Boolean(sequenceOnTop));
+      });
+    };
+
+    makeDropTarget(genomeViewerSection);
+    makeDropTarget(sequenceDisplaySection);
+  }
+
+  hideViewerSectionDropIndicator() {
+    document.querySelectorAll('.viewer-section-drop-indicator').forEach(el => el.remove());
   }
 
   // Toggle collapse/expand of bottom sequence panel
